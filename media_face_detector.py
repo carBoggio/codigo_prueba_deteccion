@@ -1,11 +1,11 @@
 import cv2
-import mediapipe as mp  # Esto debería importar la biblioteca, no tu archivo
+import mediapipe as mp
 import numpy as np
 import time
 
 class FaceDetector:
     """
-    Clase para la detección facial usando OpenCV para capturar frames y MediaPipe para detección
+    Clase para la detección facial usando OpenCV y MediaPipe para detección
     """
     def __init__(self, min_detection_confidence=0.5, model_selection=1):
         """
@@ -25,52 +25,41 @@ class FaceDetector:
             model_selection=model_selection
         )
         
-        # Estado de la cámara
-        self.cap = None
+        # Estado del procesamiento
         self.is_running = False
+        self.image = None
         
         print("Detector facial MediaPipe inicializado")
     
-    def start_camera(self, camera_id=0, width=640, height=480):
+    def load_image(self, image_path):
         """
-        Inicia la captura de cámara con OpenCV
+        Carga una imagen desde un archivo
         
         Args:
-            camera_id: ID de la cámara (0 por defecto para la webcam principal)
-            width: Ancho deseado para la captura
-            height: Alto deseado para la captura
+            image_path: Ruta a la imagen que se desea cargar
             
         Returns:
-            bool: True si la cámara se inició correctamente, False en caso contrario
+            bool: True si la imagen se cargó correctamente, False en caso contrario
         """
-        # Si ya hay una cámara activa, detenerla primero
-        if self.is_running:
-            self.stop_camera()
+        # Cargar la imagen con OpenCV
+        self.image = cv2.imread(image_path)
         
-        # Iniciar captura de cámara
-        self.cap = cv2.VideoCapture(camera_id)
-        
-        # Configurar resolución
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
-        
-        # Verificar si la cámara se abrió correctamente
-        if not self.cap.isOpened():
-            print("Error: No se pudo abrir la cámara.")
+        # Verificar si la imagen se cargó correctamente
+        if self.image is None:
+            print(f"Error: No se pudo cargar la imagen desde {image_path}.")
             return False
         
         self.is_running = True
-        print(f"Cámara iniciada (ID: {camera_id}, Resolución: {width}x{height})")
+        print(f"Imagen cargada correctamente. Dimensiones: {self.image.shape[1]}x{self.image.shape[0]}")
         return True
     
-    def stop_camera(self):
+    def stop_processing(self):
         """
-        Detiene la captura de cámara
+        Detiene el procesamiento y libera recursos
         """
-        if self.cap is not None and self.is_running:
-            self.cap.release()
-            self.is_running = False
-            print("Cámara detenida")
+        self.is_running = False
+        cv2.destroyAllWindows()
+        print("Procesamiento detenido")
     
     def detect_faces(self, image):
         """
@@ -151,39 +140,36 @@ class FaceDetector:
         
         return processed_image, detections
     
-    def process_webcam_feed(self, process_frame_callback=None):
+    def process_static_image(self, process_detections_callback=None):
         """
-        Procesa continuamente el feed de la webcam y aplica detección facial
+        Procesa una imagen estática y muestra el resultado indefinidamente
         
         Args:
-            process_frame_callback: Función opcional para procesar cada frame y detecciones
-                                   Debe aceptar (frame, detections) como argumentos
+            process_detections_callback: Función opcional para procesar detecciones
+                                       Debe aceptar (frame, detections) como argumentos
         """
-        if not self.is_running or self.cap is None:
-            print("Error: La cámara no está activa")
+        if not self.is_running or self.image is None:
+            print("Error: No hay imagen cargada para procesar")
             return
         
         try:
+            # Usar la imagen cargada como frame
+            frame = self.image.copy()
+            
+            # Detectar rostros
+            processed_frame, detections = self.detect_faces(frame)
+            
+            # Mostrar información sobre detecciones
+            cv2.putText(processed_frame, f"Rostros: {len(detections)}", 
+                        (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            
+            # Si hay una función de callback, llamarla con el frame procesado y detecciones
+            if process_detections_callback is not None:
+                process_detections_callback(processed_frame, detections)
+            
+            # Mostrar resultado indefinidamente hasta que se presione 'q'
+            print("Mostrando resultado. Presiona 'q' para salir.")
             while self.is_running:
-                # Capturar frame
-                ret, frame = self.cap.read()
-                
-                if not ret:
-                    print("Error: No se pudo leer el frame")
-                    break
-                
-                # Detectar rostros
-                processed_frame, detections = self.detect_faces(frame)
-                
-                # Mostrar información sobre detecciones
-                cv2.putText(processed_frame, f"Rostros: {len(detections)}", 
-                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-                
-                # Si hay una función de callback, llamarla con el frame procesado y detecciones
-                if process_frame_callback is not None:
-                    process_frame_callback(processed_frame, detections)
-                
-                # Mostrar resultado
                 cv2.imshow('Detección Facial MediaPipe', processed_frame)
                 
                 # Salir si se presiona la tecla 'q'
@@ -191,12 +177,12 @@ class FaceDetector:
                     break
                 
         except Exception as e:
-            print(f"Error en el procesamiento del video: {e}")
+            print(f"Error en el procesamiento de la imagen: {e}")
         
         finally:
             # Liberar recursos
             cv2.destroyAllWindows()
-            self.stop_camera()
+            self.is_running = False
     
     def extract_face_for_recognition(self, image, detection, target_size=(112, 112)):
         """
@@ -222,9 +208,6 @@ class FaceDetector:
         # Redimensionar para reconocimiento facial
         face_roi = cv2.resize(face_roi, target_size)
         
-        # Convertir a RGB si el modelo lo requiere
-        # face_roi = cv2.cvtColor(face_roi, cv2.COLOR_BGR2RGB)
-        
         return face_roi
 
 
@@ -233,9 +216,12 @@ if __name__ == "__main__":
     # Inicializar detector
     detector = FaceDetector(min_detection_confidence=0.5)
     
-    # Iniciar cámara
-    if detector.start_camera(width=640, height=480):
-        # Definir callback para procesar frames (opcional)
+    # Ruta a la imagen que quieres procesar
+    image_path = "./cara_ejemplo.jpg"  # Cambia esto a la ruta de tu imagen
+    
+    # Cargar imagen
+    if detector.load_image(image_path):
+        # Definir callback para procesar detecciones (opcional)
         def process_detections(frame, detections):
             # Aquí puedes implementar lógica adicional con las detecciones
             for i, det in enumerate(detections):
@@ -248,5 +234,7 @@ if __name__ == "__main__":
                     # Mostrar cara extraída en una ventana separada
                     cv2.imshow(f"Rostro {i+1}", face)
         
-        # Procesar feed de webcam
-        detector.process_webcam_feed(process_frame_callback=process_detections)
+        # Procesar imagen estática
+        detector.process_static_image(process_detections_callback=process_detections)
+    else:
+        print(f"No se pudo cargar la imagen: {image_path}")
